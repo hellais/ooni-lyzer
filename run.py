@@ -42,10 +42,15 @@ def get_raw_report_keys_from_s3():
     )
     dates = tuple(pd.date_range('2016-01-01', '2016-01-05').strftime('%Y-%m-%d'))
     targets = set()
-    keys = helper.s3.get_keys(connection=connection, prefix=constants.ooni_s3_targets['raw'], date_prefix=dates)
+    keys = helper.s3.get_keys(
+            connection=connection,
+            prefix=constants.ooni_s3_targets['raw'],
+            date_prefix=dates,
+            has_any=['traceroute'])
     return keys
 
 if __name__ == '__main__':
-    get_raw_report_keys_from_s3()
+    keys = get_raw_report_keys_from_s3()
+    pprint(keys)
 
     #luigi.run()
