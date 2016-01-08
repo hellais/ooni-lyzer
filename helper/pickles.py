@@ -13,7 +13,7 @@ def load(path):
 
 
 def save(data, path):
-    logging.error("Saving to %s" % path)
+    logging.info("Saving to %s" % path)
     with open(path, 'wb') as fp:
         pickle.dump(data, fp)
 

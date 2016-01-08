@@ -28,7 +28,7 @@ class IdentifyOoniProbeReports(luigi.ExternalTask):
         keys = helper.s3.get_keys(
                 connection=connection,
                 prefixes=prefixes,
-                has_any=['traceroute']
+                has_any=['http_invalid_request_line']
         )
         return helper.s3.wrap_as_s3_target(
                 connection=connection,
@@ -53,8 +53,6 @@ class FetchOoniProbeReports(luigi.Task):
                                     path=self.__to_target_name(
                                          prefix=constants.local_targets['raw'],
                                          target=target))
-                break
-            break
 
     def output(self):
         return set(map(lambda target: luigi.file.LocalTarget(
