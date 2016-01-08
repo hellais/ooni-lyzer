@@ -1,7 +1,11 @@
+import collections
 import os
 
-ooni_s3_targets = {
-    'raw': 's3://ooni-private/reports-raw/yaml'
+ooni_s3_targets = {}
+
+ooni_s3_targets['raw'] = {
+    'bucket': 'ooni-private',
+    'prefix': 'reports-raw/yaml'
 }
 
 credentials = {
