@@ -14,26 +14,25 @@ logging.getLogger('boto').setLevel(logging.INFO)
 
 
 def connect():
-    return S3Connection(
+    return luigi.s3.S3Client(
             aws_access_key_id=constants.credentials['aws_access_key_id'],
             aws_secret_access_key=constants.credentials['aws_secret_access_key']
     )
 
 
-def wrap_as_s3_target(connection, bucket_name, keys):
+def get_keys(connection, prefixes, has_any=None, has_all=None):
+    keys = set()
+    for p in prefixes:
+        keys.update(set(map(lambda k: os.path.join(p, k), connection.list(p))))
+    if has_any:
+        keys = set(filter(lambda k: any(map(lambda t: t in k, has_any)), keys))
+    if has_all:
+        keys = set(filter(lambda k: all(map(lambda t: t in k, has_all)), keys))
+    return keys
+
+
+def wrap_as_s3_target(connection, keys):
     targets = []
     for key in keys:
-        key = os.path.join('s3://', bucket_name, key.name)
-        targets.append(luigi.s3.S3Target(key))
+        targets.append(luigi.s3.S3Target(key, client=connection))
     return targets
-
-
-def get_keys(connection, bucket_name, prefixes, has_any=None, has_all=None):
-    logging.info("Getting keys from %s" % bucket_name)
-    bucket = connection.get_bucket(bucket_name=bucket_name)
-    keys = itertools.chain(*map(lambda e: e, map(lambda p: bucket.list(p), prefixes)))
-    if has_any:
-        keys = filter(lambda k: any(map(lambda t: t in k.name, has_any)), keys)
-    if has_all:
-        keys = filter(lambda k: all(map(lambda t: t in k.name, has_all)), keys)
-    return set(keys)
