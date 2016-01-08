@@ -4,6 +4,7 @@ import pandas as pd
 from boto.s3.connection import S3Connection
 import constants
 import itertools
+import luigi.s3
 import logging
 import boto
 import os
@@ -17,6 +18,14 @@ def connect():
             aws_access_key_id=constants.credentials['aws_access_key_id'],
             aws_secret_access_key=constants.credentials['aws_secret_access_key']
     )
+
+
+def wrap_as_s3_target(connection, bucket_name, keys):
+    targets = []
+    for key in keys:
+        key = os.path.join('s3://', bucket_name, key.name)
+        targets.append(luigi.s3.S3Target(key))
+    return targets
 
 
 def get_keys(connection, bucket_name, prefixes, has_any=None, has_all=None):
