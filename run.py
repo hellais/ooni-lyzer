@@ -5,6 +5,8 @@ import logging
 import luigi
 import yaml
 
+import helper.pickles
+import helper.files
 import helper.s3
 import constants
 
@@ -46,18 +48,29 @@ class FetchOoniProbeReports(luigi.Task):
             for test in tests:
                 metric = header
                 metric['test_keys'] = test
-
                 pprint(metric)
+                helper.pickles.save(data=metric,
+                                    path=self.__to_target_name(
+                                         prefix=constants.local_targets['raw'],
+                                         target=target))
                 break
             break
 
     def output(self):
-        pass
+        return set(map(lambda target: luigi.file.LocalTarget(
+                self.__to_target_name(
+                        prefix=constants.local_targets['raw'],
+                        target=target)), self.input()))
 
     @staticmethod
     def __split_yml(fh):
         yml = list(yaml.load_all(fh.open(), Loader=Loader))
         return yml[0], yml[1:]
+
+    @staticmethod
+    def __to_target_name(prefix, target):
+        target = os.path.join(prefix, target.path.split('/')[-1:][0])
+        return helper.files.set_extension(path=target, ext='pickle')
 
 
 if __name__ == '__main__':
