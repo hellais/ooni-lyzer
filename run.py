@@ -44,18 +44,18 @@ class FetchOoniProbeReports(luigi.Task):
 
     def run(self):
         for target in self.input():
-            header, tests = self.__split_yml(target)
-            for test in tests:
-                metric = header
-                metric['test_keys'] = test
-                pprint(metric)
-                helper.pickles.save(data=metric,
-                                    path=self.__to_target_name(
-                                         prefix=constants.local_targets['raw'],
-                                         target=target))
+            if not os.path.exists(self.__to_target_name(prefix=constants.local_targets['raw'], target=target)):
+                header, tests = self.__split_yml(target)
+                for test in tests:
+                    metric = header
+                    metric['test_keys'] = test
+                    helper.pickles.save(data=metric,
+                                        path=self.__to_target_name(
+                                             prefix=constants.local_targets['raw'],
+                                             target=target))
 
     def output(self):
-        return set(map(lambda target: luigi.file.LocalTarget(
+        return list(map(lambda target: luigi.file.LocalTarget(
                 self.__to_target_name(
                         prefix=constants.local_targets['raw'],
                         target=target)), self.input()))
