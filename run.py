@@ -6,6 +6,7 @@ import luigi
 import yaml
 
 import helper.pickles
+import helper.ignore
 import helper.files
 import helper.s3
 import constants
@@ -18,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 
 class IdentifyOoniProbeReports(luigi.ExternalTask):
-    start_date = luigi.DateParameter()
-    end_date = luigi.DateParameter()
+    start_date = luigi.DateParameter(default=datetime.date.today())
+    end_date = luigi.DateParameter(default=datetime.date.today())
 
     def output(self):
         connection = helper.s3.connect()
@@ -43,22 +44,42 @@ class FetchOoniProbeReports(luigi.Task):
         return IdentifyOoniProbeReports(self.start_date, self.end_date)
 
     def run(self):
-        for target in self.input():
-            if not os.path.exists(self.__to_target_name(prefix=constants.local_targets['raw'], target=target)):
+        """
+        Skips is a variable length array of S3 targets to ignore because the associated reports are, well, empty.
+        :return:
+        """
+        ignore = helper.ignore.load(path=constants.ignore_file)
+
+        targets = set(filter(lambda t: t.path not in ignore, self.input()))
+        for target in targets:
+            path = self.__to_target_name(prefix=constants.local_targets['raw'], target=target)
+            if not os.path.exists(path):
                 header, tests = self.__split_yml(target)
-                for test in tests:
-                    metric = header
-                    metric['test_keys'] = test
-                    helper.pickles.save(data=metric,
-                                        path=self.__to_target_name(
-                                             prefix=constants.local_targets['raw'],
-                                             target=target))
+                if not tests:
+                    ignore.add(target.path)
+                else:
+                    for test in tests:
+                        metric = header
+                        metric['test_keys'] = test
+                        helper.pickles.save(data=metric,
+                                            path=self.__to_target_name(
+                                                 prefix=constants.local_targets['raw'],
+                                                 target=target))
+        else:
+            helper.ignore.update(path=constants.ignore_file, data=ignore)
 
     def output(self):
-        return list(map(lambda target: luigi.file.LocalTarget(
-                self.__to_target_name(
-                        prefix=constants.local_targets['raw'],
-                        target=target)), self.input()))
+        ignore = helper.ignore.load(path=constants.ignore_file)
+        targets = filter(lambda t: t.path not in ignore, self.input())
+        return list(map(lambda t: self.__to_target_name(prefix=constants.local_targets['raw'], target=t), targets))
+
+    def complete(self):
+        ignore = helper.ignore.load(path=constants.ignore_file)
+        inputs = set(filter(lambda x: x.path not in ignore, self.input()))
+        outputs = set(filter(lambda x: not os.path.exists(self.__to_target_name(
+                prefix=constants.local_targets['raw'],
+                target=x)), inputs))
+        return len(outputs) == 0
 
     @staticmethod
     def __split_yml(fh):
@@ -69,6 +90,21 @@ class FetchOoniProbeReports(luigi.Task):
     def __to_target_name(prefix, target):
         target = os.path.join(prefix, target.path.split('/')[-1:][0])
         return helper.files.set_extension(path=target, ext='pickle')
+
+
+class NormalizeOoniProbeReports(luigi.Task):
+    start_date = luigi.DateParameter(default=datetime.date.today())
+    end_date = luigi.DateParameter(default=datetime.date.today())
+
+    def requires(self):
+        return FetchOoniProbeReports(self.start_date, self.end_date)
+
+    def run(self):
+        for target in self.input():
+            print(target)
+
+    def output(self):
+        pass
 
 
 if __name__ == '__main__':
