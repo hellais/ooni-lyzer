@@ -5,6 +5,7 @@ import logging
 import luigi
 import yaml
 
+import helper.learning
 import helper.pickles
 import helper.ignore
 import helper.files
@@ -62,6 +63,7 @@ class FetchOoniProbeReports(luigi.Task):
                 else:
                     for test in tests:
                         metric = header
+                        metric['report_filename'] = target.path
                         metric['test_keys'] = test
                         helper.pickles.save(data=metric,
                                             path=self.__to_target_name(
@@ -106,25 +108,13 @@ class NormalizeOoniProbeReports(luigi.Task):
         return FetchOoniProbeReports(self.start_date, self.end_date)
 
     def run(self):
-        for target in self.input():
-            failure = False
-
-            target = helper.pickles.load(target)
-            keys = set(target.keys())
-
-            missing_keys = constants.schema.difference(keys)
-            if missing_keys:
-                logging.error("Encountered %d missing keys: %s" % (len(missing_keys), missing_keys))
-                failure = True
-
-            misplaced_keys = keys - constants.schema
-            if misplaced_keys:
-                logging.warning("Encountered %d misplaced keys: %s" % (len(misplaced_keys), misplaced_keys))
-                failure = True
-
-            if failure:
+        for filename in self.input():
+            target = helper.pickles.load(filename)
+            target = helper.learning.autocorrect(dictionary=target, required=constants.schema, relocate_to='test_keys')
+            misplaced = set(target.keys()) - constants.schema
+            if misplaced:
                 pprint(target)
-                break
+                raise ValueError("There are %d misplaced keys - specifically: %s" % (len(misplaced), misplaced))
 
     def output(self):
         pass
