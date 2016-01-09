@@ -22,18 +22,21 @@ class IdentifyOoniProbeReports(luigi.ExternalTask):
     start_date = luigi.DateParameter(default=datetime.date.today())
     end_date = luigi.DateParameter(default=datetime.date.today())
 
+    index_file = "ooniprobe-report-names.s3.pickle"
+
     def output(self):
         connection = helper.s3.connect()
-        dates = pd.date_range(self.start_date, self.end_date).strftime('%Y-%m-%d')
-        prefixes = list(map(lambda date: os.path.join(constants.ooni_s3_targets['raw'], date), dates))
-        keys = helper.s3.get_keys(
-                connection=connection,
-                prefixes=prefixes,
-                has_any=['http_invalid_request_line']
-        )
-        return helper.s3.wrap_as_s3_target(
-                connection=connection,
-                keys=keys)
+        if not os.path.exists(self.index_file):
+            logging.info("Creating index file %s" % self.index_file)
+            dates = pd.date_range(self.start_date, self.end_date).strftime('%Y-%m-%d')
+            prefixes = list(map(lambda date: os.path.join(constants.ooni_s3_targets['raw'], date), dates))
+            keys = helper.s3.get_keys(
+                    connection=connection,
+                    prefixes=prefixes,
+                    has_any=['http_invalid_request_line']
+            )
+            helper.pickles.save(data=keys, path=self.index_file)
+        return helper.s3.wrap_as_s3_target(connection=connection, keys=helper.pickles.load(path=self.index_file))
 
 
 class FetchOoniProbeReports(luigi.Task):
@@ -96,12 +99,16 @@ class NormalizeOoniProbeReports(luigi.Task):
         return FetchOoniProbeReports(self.start_date, self.end_date)
 
     def run(self):
-        for target in self.input():
-            print(target)
+        logger.info("NormalizeOoniProbeReports task received %d inputs" % len(self.input()))
 
     def output(self):
         pass
 
 
+def cleanup():
+    logging.info("Removing S3 key name cache: %s" % IdentifyOoniProbeReports.index_file)
+    os.remove(IdentifyOoniProbeReports.index_file)
+
 if __name__ == '__main__':
     luigi.run()
+    cleanup()

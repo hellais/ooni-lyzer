@@ -5,7 +5,11 @@ import glob
 
 def load(path):
     if globby(path=path):
-        return list(map(lambda p: pickle.load(open(p, "rb")), glob.glob(path)))
+        contents = list(map(lambda p: pickle.load(open(p, "rb")), glob.glob(path)))
+        if len(contents) == 1:
+            return contents[0]
+        else:
+            return contents
     else:
         return pickle.load(open(path, "rb"))
 

@@ -1,9 +1,4 @@
-from pprint import pprint
-import pandas as pd
-
-from boto.s3.connection import S3Connection
 import constants
-import itertools
 import luigi.s3
 import logging
 import boto
