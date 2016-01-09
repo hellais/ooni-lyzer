@@ -40,6 +40,9 @@ class IdentifyOoniProbeReports(luigi.ExternalTask):
 
 
 class FetchOoniProbeReports(luigi.Task):
+    """
+    At this stage of the pipeline, ooni-probe reports are represented as YAML files
+    """
     start_date = luigi.DateParameter(default=datetime.date.today())
     end_date = luigi.DateParameter(default=datetime.date.today())
 
@@ -92,6 +95,10 @@ class FetchOoniProbeReports(luigi.Task):
 
 
 class NormalizeOoniProbeReports(luigi.Task):
+    """
+    At this stage of the pipeline, ooni-probe reports are represented as pickled Python dicts - the goal is to normalize
+    which keys are available within each of the test results
+    """
     start_date = luigi.DateParameter(default=datetime.date.today())
     end_date = luigi.DateParameter(default=datetime.date.today())
 
@@ -99,7 +106,25 @@ class NormalizeOoniProbeReports(luigi.Task):
         return FetchOoniProbeReports(self.start_date, self.end_date)
 
     def run(self):
-        logger.info("NormalizeOoniProbeReports task received %d inputs" % len(self.input()))
+        for target in self.input():
+            failure = False
+
+            target = helper.pickles.load(target)
+            keys = set(target.keys())
+
+            missing_keys = constants.schema.difference(keys)
+            if missing_keys:
+                logging.error("Encountered %d missing keys: %s" % (len(missing_keys), missing_keys))
+                failure = True
+
+            misplaced_keys = keys - constants.schema
+            if misplaced_keys:
+                logging.warning("Encountered %d misplaced keys: %s" % (len(misplaced_keys), misplaced_keys))
+                failure = True
+
+            if failure:
+                pprint(target)
+                break
 
     def output(self):
         pass
