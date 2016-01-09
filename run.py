@@ -44,10 +44,6 @@ class FetchOoniProbeReports(luigi.Task):
         return IdentifyOoniProbeReports(self.start_date, self.end_date)
 
     def run(self):
-        """
-        Skips is a variable length array of S3 targets to ignore because the associated reports are, well, empty.
-        :return:
-        """
         ignore = helper.ignore.load(path=constants.ignore_file)
 
         targets = set(filter(lambda t: t.path not in ignore, self.input()))

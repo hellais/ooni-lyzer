@@ -1,8 +1,6 @@
-import helper.files
 import logging
 import pickle
 import glob
-import os
 
 
 def load(path):
