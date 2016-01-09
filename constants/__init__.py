@@ -7,6 +7,7 @@ ooni_s3_targets['raw'] = 's3://ooni-private/reports-raw/yaml'
 
 local_targets = {}
 local_targets['raw'] = 'targets/raw'
+local_targets['clean'] = 'targets/clean'
 
 credentials = {
     'aws_access_key_id' : os.environ['AWS_ACCESS_KEY_ID'],

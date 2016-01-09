@@ -34,7 +34,7 @@ class IdentifyOoniProbeReports(luigi.ExternalTask):
             keys = helper.s3.get_keys(
                     connection=connection,
                     prefixes=prefixes,
-                    has_any=['http_invalid_request_line']
+                    has_any=['traceroute', 'http_invalid', 'dns']
             )
             helper.pickles.save(data=keys, path=self.index_file)
         return helper.s3.wrap_as_s3_target(connection=connection, keys=helper.pickles.load(path=self.index_file))
@@ -55,17 +55,21 @@ class FetchOoniProbeReports(luigi.Task):
 
         targets = set(filter(lambda t: t.path not in ignore, self.input()))
         for target in targets:
+            logging.info(target.path)
             path = self.__to_target_name(prefix=constants.local_targets['raw'], target=target)
             if not os.path.exists(path):
                 header, tests = self.__split_yml(target)
                 if not tests:
                     ignore.add(target.path)
                 else:
+                    metrics = []
                     for test in tests:
                         metric = header
                         metric['report_filename'] = target.path
                         metric['test_keys'] = test
-                        helper.pickles.save(data=metric,
+                        metrics.append(metric)
+                    else:
+                        helper.pickles.save(data=metrics,
                                             path=self.__to_target_name(
                                                  prefix=constants.local_targets['raw'],
                                                  target=target))
@@ -109,15 +113,25 @@ class NormalizeOoniProbeReports(luigi.Task):
 
     def run(self):
         for filename in self.input():
-            target = helper.pickles.load(filename)
-            target = helper.learning.autocorrect(dictionary=target, required=constants.schema, relocate_to='test_keys')
-            misplaced = set(target.keys()) - constants.schema
-            if misplaced:
-                pprint(target)
-                raise ValueError("There are %d misplaced keys - specifically: %s" % (len(misplaced), misplaced))
+            targets = helper.pickles.load(filename)
+            metrics = []
+            for target in targets:
+                target = helper.learning.autocorrect(dictionary=target, required=constants.schema, relocate_to='test_keys')
+                misplaced = set(target.keys()) - constants.schema
+                if misplaced:
+                    pprint(target)
+                    raise ValueError("There are %d misplaced keys - specifically: %s" % (len(misplaced), misplaced))
+                else:
+                    metrics.append(target)
+            else:
+                helper.pickles.save(data=metrics, path=self.__to_target_name(filename))
 
     def output(self):
-        pass
+        return set(map(lambda t: luigi.file.LocalTarget(self.__to_target_name(path=t)), self.input()))
+
+    @staticmethod
+    def __to_target_name(path):
+        return path.replace(constants.local_targets['raw'], constants.local_targets['clean'])
 
 
 def cleanup():
@@ -125,5 +139,9 @@ def cleanup():
     os.remove(IdentifyOoniProbeReports.index_file)
 
 if __name__ == '__main__':
-    luigi.run()
-    cleanup()
+    try:
+        luigi.run()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        cleanup()

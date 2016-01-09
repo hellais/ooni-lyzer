@@ -15,7 +15,7 @@ def remove_duplicates(dictionary, relocate_to):
     else:
         for k in duplicates:
             if dictionary[k] == dictionary[relocate_to][k]:
-                logging.warning("Removing duplicate (k, v) pair with key: %s" % k)
+                logging.debug("Removing duplicate (k, v) pair with key: %s" % k)
                 del dictionary[relocate_to][k]
         else:
             return dictionary
@@ -48,14 +48,14 @@ def autocorrect(dictionary, required, relocate_to):
 
             misplaced = target.keys() - required
             for k in misplaced:
-                logging.warning("Relocating %s to be a subkey of %s" % (k, relocate_to))
+                logging.debug("Relocating %s to be a subkey of %s" % (k, relocate_to))
                 if relocate_to not in dictionary:
                     target[relocate_to] = {}
                 target[relocate_to][k] = target.pop(k)
             dictionary = target
 
-    remove_duplicates(dictionary=dictionary, relocate_to=relocate_to)
-    return target
+    dictionary = remove_duplicates(dictionary=dictionary, relocate_to=relocate_to)
+    return dictionary
 
 
 
