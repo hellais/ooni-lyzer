@@ -15,6 +15,10 @@ def connect():
     )
 
 
+def get_as_string(path, connection=connect(), decode='utf-8'):
+    return connection.get_as_string(path).decode(decode)
+
+
 def get_keys(connection, prefixes, has_any=None, has_all=None):
     keys = set()
     for p in prefixes:

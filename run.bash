@@ -1,1 +1,1 @@
-python3 run.py NormalizeOoniProbeReports --start-date='2016-01-01' --end-date='2016-01-01' --local-scheduler
+python3 run.py SanitiseOoniProbeReports --start-date='2014-10-01' --end-date='2014-10-30' --local-scheduler

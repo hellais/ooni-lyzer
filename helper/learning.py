@@ -38,6 +38,7 @@ def autocorrect(dictionary, required, relocate_to):
         flat = flatdict(dictionary)
 
         relocatable = set(filter(lambda x: x in flat.keys() and x not in target.keys(), missing))
+
         for k in relocatable:
             target[k] = flat[k]
         else:
@@ -48,10 +49,11 @@ def autocorrect(dictionary, required, relocate_to):
 
             misplaced = target.keys() - required
             for k in misplaced:
-                logging.debug("Relocating %s to be a subkey of %s" % (k, relocate_to))
-                if relocate_to not in dictionary:
+                logging.info("Relocating %s to be a subkey of %s" % (k, relocate_to))
+                if relocate_to not in dictionary or not isinstance(target[relocate_to], dict):
                     target[relocate_to] = {}
                 target[relocate_to][k] = target.pop(k)
+
             dictionary = target
 
     dictionary = remove_duplicates(dictionary=dictionary, relocate_to=relocate_to)

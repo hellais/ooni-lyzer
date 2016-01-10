@@ -1,19 +1,24 @@
 from yaml import CLoader as Loader
 from pprint import pprint
+import pandas as pd
 import datetime
+import hashlib
+import socket
 import logging
+import codecs
 import luigi
+import json
 import yaml
+import os
+import re
 
+import helper.networking
 import helper.learning
 import helper.pickles
 import helper.ignore
 import helper.files
 import helper.s3
 import constants
-
-import pandas as pd
-import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,6 +39,7 @@ class IdentifyOoniProbeReports(luigi.ExternalTask):
             keys = helper.s3.get_keys(
                     connection=connection,
                     prefixes=prefixes,
+                    has_any=['bridge']
             )
             helper.pickles.save(data=keys, path=self.index_file)
         return helper.s3.wrap_as_s3_target(connection=connection, keys=helper.pickles.load(path=self.index_file))
@@ -99,7 +105,7 @@ class FetchOoniProbeReports(luigi.Task):
         return helper.files.set_extension(path=target, ext='pickle')
 
 
-class NormalizeOoniProbeReports(luigi.Task):
+class NormaliseOoniProbeReports(luigi.Task):
     """
     At this stage of the pipeline, ooni-probe reports are represented as pickled Python dicts - the goal is to normalize
     which keys are available within each of the test results
@@ -134,7 +140,63 @@ class NormalizeOoniProbeReports(luigi.Task):
 
     @staticmethod
     def __to_target_name(path):
-        return path.replace(constants.local_targets['raw'], constants.local_targets['clean'])
+        return path.replace(constants.local_targets['raw'], constants.local_targets['corrected'])
+
+
+class SanitiseOoniProbeReports(luigi.Task):
+    start_date = luigi.DateParameter(default=datetime.date.today())
+    end_date = luigi.DateParameter(default=datetime.date.today())
+
+    def requires(self):
+        return NormaliseOoniProbeReports(self.start_date, self.end_date)
+
+    def run(self):
+        bridgedb = json.loads(helper.s3.get_as_string(path=constants.ooni_s3_targets['bridgedb']))
+
+        for filename in self.input():
+            targets = helper.pickles.load(filename.path)
+            metrics = []
+            for target in targets:
+                if 'bridge' in target['test_name']:
+                    self.__sanitize_bridge_reachability(target=target, bridgedb=bridgedb)
+                break
+            break
+
+    def output(self):
+        return set(map(lambda t: luigi.file.LocalTarget(self.__to_target_name(path=t.path)), self.input()))
+
+    def complete(self):
+        outputs = set(filter(lambda x: not os.path.exists(x.path), self.output()))
+        return len(outputs) == 0
+
+    @staticmethod
+    def __to_target_name(path):
+        return path.replace(constants.local_targets['corrected'], constants.local_targets['sanitised'])
+
+    @staticmethod
+    def __sanitize_bridge_reachability(target, bridgedb):
+        tor_log = target['test_keys'].get('tor_log', None)
+        address = target['test_keys'].pop('bridge_address', None)
+
+        if address and address in bridgedb:
+            fingerprint = codecs.decode(bridgedb[address]['fingerprint'], 'hex')
+            target['test_keys']['distributor'] = bridgedb[address]['distributor']
+            target['test_keys']['bridge_hashed_fingerprint'] = hashlib.sha1(fingerprint).hexdigest()
+            target['input'] = target['test_keys']['bridge_hashed_fingerprint']
+
+        if tor_log:
+            for k, regexp in constants.regular_expressions['tor_log'].items():
+                matches = regexp.findall(target['test_keys']['tor_log'])
+                if matches:
+                    if k == 'ipv4_address':
+                        ips = set(filter(lambda x: helper.networking.is_ip(x), map(lambda x: ''.join(x), matches)))
+                        for ip in ips:
+                            logging.debug("Redacting IPv4 address %s from Tor log" % ip)
+                            target['test_keys']['tor_log'] = re.sub(re.compile(ip), "[REDACTED]", target['test_keys']['tor_log'])
+                    else:
+                        logging.info("Redacting %s from Tor log" % k)
+                        target['test_keys']['tor_log'] = re.sub(regexp, "[REDACTED]", target['test_keys']['tor_log'])
+        return target
 
 
 def setup():

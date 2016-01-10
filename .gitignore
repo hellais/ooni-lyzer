@@ -61,3 +61,5 @@ targets/
 .idea/
 ignore.pickle
 ooniprobe-report-names.s3.pickle
+bridge_db.json
+*.yaml
