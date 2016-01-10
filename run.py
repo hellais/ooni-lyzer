@@ -34,7 +34,6 @@ class IdentifyOoniProbeReports(luigi.ExternalTask):
             keys = helper.s3.get_keys(
                     connection=connection,
                     prefixes=prefixes,
-                    has_any=['traceroute', 'http_invalid', 'dns']
             )
             helper.pickles.save(data=keys, path=self.index_file)
         return helper.s3.wrap_as_s3_target(connection=connection, keys=helper.pickles.load(path=self.index_file))
@@ -129,14 +128,19 @@ class NormalizeOoniProbeReports(luigi.Task):
     def output(self):
         return set(map(lambda t: luigi.file.LocalTarget(self.__to_target_name(path=t)), self.input()))
 
+    def complete(self):
+        outputs = set(filter(lambda x: not os.path.exists(x.path), self.output()))
+        return len(outputs) == 0
+
     @staticmethod
     def __to_target_name(path):
         return path.replace(constants.local_targets['raw'], constants.local_targets['clean'])
 
 
 def cleanup():
-    logging.info("Removing S3 key name cache: %s" % IdentifyOoniProbeReports.index_file)
-    os.remove(IdentifyOoniProbeReports.index_file)
+    if os.path.exists(IdentifyOoniProbeReports.index_file):
+        logging.info("Removing S3 key name cache: %s" % IdentifyOoniProbeReports.index_file)
+        os.remove(IdentifyOoniProbeReports.index_file)
 
 if __name__ == '__main__':
     try:
