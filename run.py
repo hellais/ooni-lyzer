@@ -137,6 +137,12 @@ class NormalizeOoniProbeReports(luigi.Task):
         return path.replace(constants.local_targets['raw'], constants.local_targets['clean'])
 
 
+def setup():
+    for path in constants.local_targets.values():
+        if not os.path.exists(path):
+            os.mkdir(path)
+
+
 def cleanup():
     if os.path.exists(IdentifyOoniProbeReports.index_file):
         logging.info("Removing S3 key name cache: %s" % IdentifyOoniProbeReports.index_file)
@@ -144,6 +150,7 @@ def cleanup():
 
 if __name__ == '__main__':
     try:
+        setup()
         luigi.run()
     except KeyboardInterrupt:
         pass
