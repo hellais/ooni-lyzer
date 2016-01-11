@@ -39,7 +39,7 @@ class IdentifyOoniProbeReports(luigi.ExternalTask):
             keys = helper.s3.get_keys(
                     connection=connection,
                     prefixes=prefixes,
-                    has_any=['bridge']
+                    has_any=['bridge', 'tcp', 'traceroute', 'meek']
             )
             helper.pickles.save(data=keys, path=self.index_file)
         return helper.s3.wrap_as_s3_target(connection=connection, keys=helper.pickles.load(path=self.index_file))
