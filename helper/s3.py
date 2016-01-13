@@ -20,6 +20,10 @@ def get_as_string(path, connection=connect(), decode='utf-8'):
     return connection.get_as_string(path).decode(decode)
 
 
+def get(s3_path, local_path, connection=connect(), decode='utf-8'):
+    return connection.get(s3_path=s3_path, destination_local_path=local_path)
+
+
 def get_keys(connection, prefixes, has_any=None, has_all=None):
     keys = set()
     if len(prefixes) > 64:

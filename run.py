@@ -16,6 +16,7 @@ import helper.learning
 import helper.pickles
 import helper.ignore
 import helper.files
+import helper.jsons
 import helper.s3
 import constants
 
@@ -34,11 +35,10 @@ class IdentifyOoniProbeReports(luigi.ExternalTask):
         if not os.path.exists(self.index_file):
             logging.info("Creating index file %s" % self.index_file)
             dates = pd.date_range(self.start_date, self.end_date).strftime('%Y-%m-%d')
-            prefixes = list(map(lambda date: os.path.join(constants.ooni_s3_targets['raw'], date), dates))
+            prefixes = list(map(lambda date: os.path.join(constants.s3_targets['raw'], date), dates))
             keys = helper.s3.get_keys(
                     connection=connection,
                     prefixes=prefixes,
-                    has_any=['dns', 'tcp', 'meek', 'bridge', 'lantern', 'invalid'],
             )
             helper.pickles.save(data=keys, path=self.index_file)
         return helper.s3.wrap_as_s3_target(connection=connection, keys=helper.pickles.load(path=self.index_file))
@@ -153,16 +153,11 @@ class SanitiseOoniProbeReports(luigi.Task):
         return NormaliseOoniProbeReports(self.start_date, self.end_date)
 
     def run(self):
-        bridgedb = json.loads(helper.s3.get_as_string(path=constants.ooni_s3_targets['bridgedb']))
-
+        bridgedb = self.__load_bridge_db(path=constants.local_targets['bridgedb'], s3_path=constants.s3_targets['bridgedb'])
         for filename in self.input():
             targets = helper.pickles.load(filename.path)
-            metrics = []
-            for target in targets:
-                if 'bridge' in target['test_name']:
-                    self.__sanitize_bridge_reachability(target=target, bridgedb=bridgedb)
-                break
-            break
+            metrics = list(map(lambda t: self.__sanitize(target=t, bridgedb=bridgedb), targets))
+            helper.pickles.save(data=metrics, path=self.__to_target_name(filename.path))
 
     def output(self):
         return set(map(lambda t: luigi.file.LocalTarget(self.__to_target_name(path=t.path)), self.input()))
@@ -172,12 +167,7 @@ class SanitiseOoniProbeReports(luigi.Task):
         return len(outputs) == 0
 
     @staticmethod
-    def __to_target_name(path):
-        return path.replace(constants.local_targets['corrected'], constants.local_targets['sanitised'])
-
-    @staticmethod
-    def __sanitize_bridge_reachability(target, bridgedb):
-        tor_log = target['test_keys'].get('tor_log', None)
+    def __sanitize(target, bridgedb):
         address = target['test_keys'].pop('bridge_address', None)
 
         if address and address in bridgedb:
@@ -185,20 +175,47 @@ class SanitiseOoniProbeReports(luigi.Task):
             target['test_keys']['distributor'] = bridgedb[address]['distributor']
             target['test_keys']['bridge_hashed_fingerprint'] = hashlib.sha1(fingerprint).hexdigest()
             target['input'] = target['test_keys']['bridge_hashed_fingerprint']
+            logging.info("Anonymizing bridge address using BridgeDB")
 
-        if tor_log:
-            for k, regexp in constants.regular_expressions['tor_log'].items():
-                matches = regexp.findall(target['test_keys']['tor_log'])
-                if matches:
-                    if k == 'ipv4_address':
-                        ips = set(filter(lambda x: helper.networking.is_ip(x), map(lambda x: ''.join(x), matches)))
-                        for ip in ips:
-                            logging.debug("Redacting IPv4 address %s from Tor log" % ip)
-                            target['test_keys']['tor_log'] = re.sub(re.compile(ip), "[REDACTED]", target['test_keys']['tor_log'])
-                    else:
-                        logging.info("Redacting %s from Tor log" % k)
-                        target['test_keys']['tor_log'] = re.sub(regexp, "[REDACTED]", target['test_keys']['tor_log'])
+        for k in ['input', 'test_keys']:
+            if target.get(k, None):
+                target[k] = SanitiseOoniProbeReports.__scrub(target=target[k],
+                                                             redactions=constants.redactions,
+                                                             except_for={'ipv4_address'})
         return target
+
+    @staticmethod
+    def __scrub(target, redactions, except_for=set()):
+        if target:
+            if except_for:
+                redactions = dict(filter(lambda k: k[0] not in except_for, redactions.items()))
+
+            if isinstance(target, str):
+                for name, regex in redactions.items():
+                    matches = regex.findall(target)
+                    if matches:
+                        logging.warning("Redacting %s" % name)
+                        target = re.sub(regex, constants.redacted, target)
+
+            elif isinstance(target, list):
+                target = list(map(lambda x: SanitiseOoniProbeReports.__scrub(target=x, redactions=redactions), target))
+
+            elif isinstance(target, dict):
+                for k, v in target.items():
+                    if target.get(k, None):
+                        if isinstance(target[k], str):
+                            target[k] = SanitiseOoniProbeReports.__scrub(target=target[k], redactions=redactions)
+        return target
+
+    @staticmethod
+    def __to_target_name(path):
+        return path.replace(constants.local_targets['corrected'], constants.local_targets['sanitised'])
+
+    @staticmethod
+    def __load_bridge_db(s3_path, path):
+        if not os.path.exists(path):
+            helper.s3.get(s3_path=s3_path, local_path=path)
+        return helper.jsons.load(path)
 
 
 def setup():

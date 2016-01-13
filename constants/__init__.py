@@ -3,20 +3,25 @@ import re
 
 ignore_file = 'ignore.pickle'
 
-ooni_s3_targets = {}
-ooni_s3_targets['raw'] = 's3://ooni-private/reports-raw/yaml'
-ooni_s3_targets['bridgedb'] = 's3://ooni-private/bridge_reachability/bridge_db.json'
+redacted = '█████'
 
-local_targets = {}
-local_targets['raw'] = 'targets/raw'
-local_targets['corrected'] = 'targets/corrected'
-local_targets['sanitised'] = 'targets/sanitised'
+s3_targets = {
+    'raw': 's3://ooni-private/reports-raw/yaml',
+    'bridgedb': 's3://ooni-private/bridge_reachability/bridge_db.json',
+}
 
-regular_expressions = {
-    'tor_log': {
-        'bridge_fingerprint': re.compile('[A-F0-9]{40}'),
-        'ipv4_address': re.compile('(\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(:\d{1,5})?\b'),
-    }
+local_targets = {
+    'raw': 'targets/raw',
+    'corrected': 'targets/corrected',
+    'sanitised': 'targets/sanitised',
+    'bridgedb': os.path.basename(s3_targets['bridgedb'])
+}
+
+redactions = {
+    'password': re.compile('password=[\S]+'),
+    'bridge_fingerprint': re.compile('[A-F0-9]{40}'),
+    'ipv4_address': re.compile('\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'),
+    'ipv4_socket': re.compile('\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}')
 }
 
 credentials = {
