@@ -5,6 +5,43 @@ ignore_file = 'ignore.pickle'
 
 redacted = '█████'
 
+test_categories = {
+    'dnst': {
+        'dns_consistency',
+        'dns_injection',
+        'captive_portal',
+    },
+    'process': {
+        'lantern',
+        'psiphon',
+    },
+    'httpt': {
+        'http_requests',
+        'meek_fronted_requests',
+        'domclass_collector',
+        'http_keyword_filtering',
+        'http_uk_mobile_networks',
+        'http_header_field_manipulation',
+        'http_url_list',
+        'http_host'
+        'squid',
+        'captive_portal',
+        'psiphon'
+    },
+    'scapyt': {
+        'chinatrigger',
+        'keyword_filtering',
+        'parasitic_traceroute',
+        'traceroute',
+        'dns_spoof',
+    },
+    'tcpt': {
+        'http_filtering_bypass',
+        'http_invalid_request_line',
+        'http_trix',
+    }
+}
+
 s3_targets = {
     'raw': 's3://ooni-private/reports-raw/yaml',
     'bridgedb': 's3://ooni-private/bridge_reachability/bridge_db.json',

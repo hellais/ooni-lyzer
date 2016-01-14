@@ -1,6 +1,8 @@
 from yaml import CLoader as Loader
+from twisted.names.dns import Query
 from pprint import pprint
 import pandas as pd
+import twisted.names
 import datetime
 import hashlib
 import logging
@@ -24,7 +26,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class IdentifyOoniProbeReports(luigi.ExternalTask):
+class Identify(luigi.ExternalTask):
     start_date = luigi.DateParameter(default=datetime.date.today())
     end_date = luigi.DateParameter(default=datetime.date.today())
 
@@ -39,6 +41,7 @@ class IdentifyOoniProbeReports(luigi.ExternalTask):
             keys = helper.s3.get_keys(
                     connection=connection,
                     prefixes=prefixes,
+                    has_any=constants.test_categories['dnst'],
             )
             helper.pickles.save(data=keys, path=self.index_file)
         return helper.s3.wrap_as_s3_target(connection=connection, keys=helper.pickles.load(path=self.index_file))
@@ -47,7 +50,7 @@ class IdentifyOoniProbeReports(luigi.ExternalTask):
         return os.path.exists(self.index_file)
 
 
-class FetchOoniProbeReports(luigi.Task):
+class Fetch(luigi.Task):
     """
     At this stage of the pipeline, ooni-probe reports are represented as YAML files
     """
@@ -55,7 +58,7 @@ class FetchOoniProbeReports(luigi.Task):
     end_date = luigi.DateParameter(default=datetime.date.today())
 
     def requires(self):
-        return IdentifyOoniProbeReports(self.start_date, self.end_date)
+        return Identify(self.start_date, self.end_date)
 
     def run(self):
         ignore = helper.ignore.load(path=constants.ignore_file)
@@ -107,7 +110,7 @@ class FetchOoniProbeReports(luigi.Task):
         return helper.files.set_extension(path=target, ext='pickle')
 
 
-class NormaliseOoniProbeReports(luigi.Task):
+class Normalise(luigi.Task):
     """
     At this stage of the pipeline, ooni-probe reports are represented as pickled Python dicts - the goal is to normalize
     which keys are available within each of the test results
@@ -116,22 +119,16 @@ class NormaliseOoniProbeReports(luigi.Task):
     end_date = luigi.DateParameter(default=datetime.date.today())
 
     def requires(self):
-        return FetchOoniProbeReports(self.start_date, self.end_date)
+        return Fetch(self.start_date, self.end_date)
 
     def run(self):
         for filename in self.input():
+            logging.info("Normalising %s" % filename)
+
             targets = helper.pickles.load(filename)
             metrics = []
             for target in targets:
-                target = helper.learning.autocorrect(dictionary=target, required=constants.schema, relocate_to='test_keys')
-                misplaced = set(target.keys()) - constants.schema
-                if misplaced:
-                    pprint(target)
-                    raise ValueError("There are %d misplaced keys - specifically: %s" % (len(misplaced), misplaced))
-                else:
-                    metrics.append(target)
-            else:
-                helper.pickles.save(data=metrics, path=self.__to_target_name(filename))
+                target = self.normalize(path=filename, target=target)
 
     def output(self):
         return set(map(lambda t: luigi.file.LocalTarget(self.__to_target_name(path=t)), self.input()))
@@ -140,17 +137,72 @@ class NormaliseOoniProbeReports(luigi.Task):
         outputs = set(filter(lambda x: not os.path.exists(x.path), self.output()))
         return len(outputs) == 0
 
+    def normalize(self, path, target):
+        target = self.__normalize_generic(target=target)
+        if any(map(lambda t: t in path, constants.test_categories['dnst'])):
+            target = self.__normalize_dnst(target=target, path=path)
+        if any(map(lambda t: t in path, constants.test_categories['httpt'])):
+            target = self.__normalize_httpt(target=target, path=path)
+        if any(map(lambda t: t in path, constants.test_categories['scapyt'])):
+            target = self.__normalize_scapyt(target=target, path=path)
+        if any(map(lambda t: t in path, constants.test_categories['tcpt'])):
+            target = self.__normalize_tcpt(target=target, path=path)
+        return target
+
     @staticmethod
     def __to_target_name(path):
         return path.replace(constants.local_targets['raw'], constants.local_targets['corrected'])
 
+    @staticmethod
+    def __normalize_generic(target):
+        return helper.learning.autocorrect(dictionary=target, required=constants.schema, relocate_to='test_keys')
 
-class SanitiseOoniProbeReports(luigi.Task):
+    @staticmethod
+    def __normalize_dnst(target, path):
+        pprint(target)
+
+        logging.info("Normalising %s as a DNS test" % path)
+
+        target['test_keys'].pop('probe_city')
+        target['test_keys'].pop('start_time')
+        target['test_keys'].pop('test_resolvers')
+
+        errors = target['test_keys'].pop('tampering')
+        target['test_keys']['errors'] = errors
+        target['test_keys']['successful'] = set(map(lambda e: e[0], filter(lambda e: e[1] is False, errors.items())))
+        target['test_keys']['failed'] = set(map(lambda e: e[0], filter(lambda e: e[1], errors.items())))
+
+        queries = []
+        for query in target['test_keys'].pop('queries'):
+            query['failure'] = query.get('failure', None)
+            query['hostname'] = str(eval(query.pop('query'))[0].name)
+            query['resolver_hostname'],  query['resolver_port'] = query.pop('resolver')
+            queries.append(query)
+        target['test_keys']['queries'] = queries
+        return target
+
+    @staticmethod
+    def __normalize_httpt(target, path):
+        logging.info("Normalising %s as a HTTP test" % path)
+        return target
+
+    @staticmethod
+    def __normalize_scapyt(target, path):
+        logging.info("Normalising %s as a Scapy test" % path)
+        return target
+
+    @staticmethod
+    def __normalize_tcpt(target, path):
+        logging.info("Normalising %s as a TCP test" % path)
+        return target
+
+
+class Sanitise(luigi.Task):
     start_date = luigi.DateParameter(default=datetime.date.today())
     end_date = luigi.DateParameter(default=datetime.date.today())
 
     def requires(self):
-        return NormaliseOoniProbeReports(self.start_date, self.end_date)
+        return Normalise(self.start_date, self.end_date)
 
     def run(self):
         bridgedb = self.__load_bridge_db(path=constants.local_targets['bridgedb'], s3_path=constants.s3_targets['bridgedb'])
@@ -179,9 +231,9 @@ class SanitiseOoniProbeReports(luigi.Task):
 
         for k in ['input', 'test_keys']:
             if target.get(k, None):
-                target[k] = SanitiseOoniProbeReports.__scrub(target=target[k],
-                                                             redactions=constants.redactions,
-                                                             except_for={'ipv4_address'})
+                target[k] = Sanitise.__scrub(target=target[k],
+                                             redactions=constants.redactions,
+                                             except_for={'ipv4_address'})
         return target
 
     @staticmethod
@@ -198,13 +250,13 @@ class SanitiseOoniProbeReports(luigi.Task):
                         target = re.sub(regex, constants.redacted, target)
 
             elif isinstance(target, list):
-                target = list(map(lambda x: SanitiseOoniProbeReports.__scrub(target=x, redactions=redactions), target))
+                target = list(map(lambda x: Sanitise.__scrub(target=x, redactions=redactions), target))
 
             elif isinstance(target, dict):
                 for k, v in target.items():
                     if target.get(k, None):
                         if isinstance(target[k], str):
-                            target[k] = SanitiseOoniProbeReports.__scrub(target=target[k], redactions=redactions)
+                            target[k] = Sanitise.__scrub(target=target[k], redactions=redactions)
         return target
 
     @staticmethod
@@ -225,9 +277,9 @@ def setup():
 
 
 def cleanup():
-    if os.path.exists(IdentifyOoniProbeReports.index_file):
-        logging.info("Removing S3 key name cache: %s" % IdentifyOoniProbeReports.index_file)
-        os.remove(IdentifyOoniProbeReports.index_file)
+    if os.path.exists(Identify.index_file):
+        logging.info("Removing S3 key name cache: %s" % Identify.index_file)
+        os.remove(Identify.index_file)
 
 if __name__ == '__main__':
     try:
